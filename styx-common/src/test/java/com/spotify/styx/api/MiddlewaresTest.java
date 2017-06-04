@@ -212,7 +212,7 @@ public class MiddlewaresTest {
     when(requestContext.request()).thenReturn(request);
     CompletionStage completionStage =
         CompletableFuture.completedFuture(Response.forStatus(Status.OK.withReasonPhrase("")));
-    assertThat(Middlewares.tokenValidator()
+    assertThat(Middlewares.auth()
                    .apply(mockInnerHandler(requestContext, completionStage)).invoke(requestContext),
                equalTo(completionStage));
   }
@@ -226,7 +226,7 @@ public class MiddlewaresTest {
     when(requestContext.request()).thenReturn(request);
     CompletionStage completionStage =
         CompletableFuture.completedFuture(Response.forStatus(Status.OK.withReasonPhrase("")));
-    assertThat(Middlewares.tokenValidator()
+    assertThat(Middlewares.auth()
                    .apply(mockInnerHandler(requestContext, completionStage)).invoke(requestContext),
                equalTo(completionStage));
   }

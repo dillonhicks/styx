@@ -21,7 +21,7 @@
 package com.spotify.styx;
 
 import static com.spotify.styx.api.Middlewares.clientValidator;
-import static com.spotify.styx.api.Middlewares.tokenValidator;
+import static com.spotify.styx.api.Middlewares.auth;
 import static com.spotify.styx.monitoring.MeteredProxy.instrument;
 import static com.spotify.styx.util.Connections.createBigTableConnection;
 import static com.spotify.styx.util.Connections.createDatastore;
@@ -361,7 +361,7 @@ public class StyxScheduler implements AppInit {
         .registerAutoRoute(Route.sync("GET", "/ping", rc -> "pong"))
         .registerRoutes(schedulerResource.routes().map(r -> r
             .withMiddleware(clientValidator(clientBlacklistSupplier))
-            .withMiddleware(tokenValidator())));
+            .withMiddleware(auth())));
 
     this.stateManager = stateManager;
     this.scheduler = scheduler;

@@ -23,17 +23,27 @@ package com.spotify.styx.api;
 import static com.spotify.styx.serialization.Json.OBJECT_MAPPER;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
+import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier;
+import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
+import com.google.api.client.googleapis.util.Utils;
+import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.common.collect.ImmutableList;
+import com.google.common.net.HttpHeaders;
 import com.spotify.apollo.Request;
+import com.spotify.apollo.RequestContext;
 import com.spotify.apollo.Response;
 import com.spotify.apollo.Status;
 import com.spotify.apollo.route.AsyncHandler;
 import com.spotify.apollo.route.Middleware;
 import com.spotify.apollo.route.SyncHandler;
+import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import okio.ByteString;
 import org.slf4j.Logger;
@@ -47,6 +57,7 @@ import org.slf4j.LoggerFactory;
 public final class Middlewares {
 
   private static final Logger LOG = LoggerFactory.getLogger(Middlewares.class);
+  public static final String BEARER_PREFIX = "Bearer ";
 
   private Middlewares() {
   }
@@ -97,8 +108,63 @@ public final class Middlewares {
     };
   }
 
+  public interface AuthContext {
+    Optional<GoogleIdToken> user();
+  }
+
+  private static final GoogleIdTokenVerifier GOOGLE_ID_TOKEN_VERIFIER;
+
+  static {
+    final NetHttpTransport transport;
+    try {
+      transport = GoogleNetHttpTransport.newTrustedTransport();
+    } catch (GeneralSecurityException | IOException e) {
+      throw new RuntimeException(e);
+    }
+    GOOGLE_ID_TOKEN_VERIFIER = new GoogleIdTokenVerifier
+        .Builder(transport, Utils.getDefaultJsonFactory())
+        .build();
+  }
+
+  interface Authenticated<T> extends Function<AuthContext, T> {}
+  interface Requested<T> extends Function<RequestContext, T> {}
+
+  public static <T> Middleware<Authenticated<Requested<T>>, AsyncHandler<Response<ByteString>>> authed() {
+    return ar -> jsonAsync().apply(requestContext -> {
+      T payload = ar
+          .apply(auth(requestContext))
+          .apply(requestContext);
+      return CompletableFuture.completedFuture(Response.forPayload(payload));
+    });
+  }
+
+  public static <T> Middleware<Authenticated<Requested<T>>, AsyncHandler<T>> authed2() {
+    return ar -> requestContext -> {
+      T payload = ar
+          .apply(auth(requestContext))
+          .apply(requestContext);
+      return CompletableFuture.completedFuture(payload);
+    };
+  }
+
+  public static AuthContext auth(RequestContext requestContext) {
+    return () -> requestContext.request()
+        .header(HttpHeaders.AUTHORIZATION)
+        .filter(s -> s.startsWith(BEARER_PREFIX))
+        .map(s -> s.substring(BEARER_PREFIX.length()))
+        .map(Middlewares::verifyIdToken);
+  }
+
+  private static GoogleIdToken verifyIdToken(final String s) {
+    try {
+      return GOOGLE_ID_TOKEN_VERIFIER.verify(s);
+    } catch (GeneralSecurityException | IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
   public static Middleware<AsyncHandler<? extends Response<?>>,
-      AsyncHandler<? extends Response<ByteString>>> tokenValidator() {
+      AsyncHandler<? extends Response<ByteString>>> auditLogger(AuthContext authContext) {
     return innerHandler -> requestContext -> {
       final Request request = requestContext.request();
       if (!"GET".equals(request.method())) {
@@ -106,7 +172,7 @@ public final class Middlewares {
         LOG.info("[AUDIT] {} {} from {} with headers {} parameters {} and payload {}",
                  request.method(),
                  request.uri(),
-                 "anonymous",
+                 authContext.user().map(idToken -> idToken.getPayload().getEmail()).orElse("anonymous"),
                  request.headers(),
                  request.parameters(),
                  request.payload().map(ByteString::utf8).orElse("")

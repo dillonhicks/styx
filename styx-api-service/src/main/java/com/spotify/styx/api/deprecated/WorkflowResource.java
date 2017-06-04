@@ -55,7 +55,7 @@ public final class WorkflowResource {
   public Stream<? extends Route<? extends AsyncHandler<? extends Response<ByteString>>>> routes() {
     final List<Route<AsyncHandler<Response<ByteString>>>> v0Routes = Arrays.asList(
         Route.with(
-            json(), "GET", BASE + "/<cid>/<eid>",
+            json().and(), "GET", BASE + "/<cid>/<eid>",
             rc -> workflow(arg("cid", rc), arg("eid", rc))),
         Route.with(
             json(), "GET", BASE + "/<cid>/<eid>/instances",
